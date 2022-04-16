@@ -1,0 +1,488 @@
+---
+title: "PSTAT 131 Final Project"
+author: "Matthew Li & Becky Su"
+date: "6/4/2020"
+output: pdf_document
+---
+# Introduction
+The House Prices Dataset from Kaggle compiled by Dean De cock serves as an updated alternative to the Boston Housing Prices dataset that is a record of 1460 housing sales and it's attributes in Ames, Iowa from 2006 to 2009. This dataset has 80 variables that focus on the quality and quantity of many physical attributes of the property. This data serves as relevant information for future home buyers as well as those looking to analyze trends of housing prices in Ames, Iowa. 
+
+In this analysis, we will use machine learning techniques such as KNN, decision tree, and random forests to determine what constitutes an expensive, or above average sale relative to the rest of the area. From this, we can also compare the techniques and identify the best method to analyze our objective. 
+
+# Data Overview
+We used sale attributes such as lot size, house condition, etc. to see if we can use machine learning to determine algorithmically why a house is expensive or cheap.
+
+```{r, include=FALSE, echo=FALSE}
+library(ISLR)
+library(plyr)
+library(tidyr)
+library(dplyr)
+library(tree)
+library(ggplot2)
+library(reshape2)
+library(class)
+library(randomForest)
+```
+
+
+```{r, include=FALSE, echo=FALSE}
+#Read in dataset 
+temp1 <- read.csv(file = 'train.csv')
+#head(temp1)
+
+#Dimensions of original dataset
+dim(temp1)
+```
+Our dataset was imported from Kaggle and it has 1460 observations and 6 predictors with no missing data values. We convert SalePrice, our response variable, to a new binary column named SaleClass so we can use predictors to classify the response. An above average SalePrice is labelled “expensive” and below average SalePrice is labelled as “cheap”. 
+
+We have 6 numeric predictors and 1 two level categorical variable, (SaleClass). OverallQual is a rating of the quality of materials used to build the house on a scale from 1 to 10, while OverallCond is a rating of the actual condition and upkeep of the house. The other predictor variables should be self explanatory. We’re going to apply a few different classification methods in order to firstly determine which the best model for predicting is in terms of the relevant variables, and secondly to find the best classification algorithm for this data.
+
+```{r, include = FALSE, echo=FALSE}
+housing = subset(temp1, select = c(LotArea, OverallQual, YearRemodAdd, OverallCond, BedroomAbvGr
+, YearBuilt, SalePrice) )
+
+averageHPrice = sum(housing$SalePrice)/1460
+housing$SaleClass <- as.factor(ifelse(housing$SalePrice <= averageHPrice , 'Cheap', 'Expensive'))
+
+#Dimensions of dataset after we processed.
+head(housing)
+```
+
+# Methods and Model Building
+We first plot a density function of sale price to see the distribution of sale prices; we also plot a boxplot of SaleClass with each of the predictor variables.The explanatory and response variables are generally correlated as we expected. Houses are more likely to be in the expensive class when they are higher quality, with a larger lot size, etc.
+
+## Exploratory Graphics
+```{r, , echo=FALSE}
+#Exploratory Graphics
+
+#Density Function
+d <- density(housing$SalePrice)
+plot(d, xlim = c(0,1000000), main="Distribution of Sale Prices")
+
+#Boxplot Year Built, Sale Class
+boxplot(YearBuilt~SaleClass, ylim = c(1850, 2010), data=housing, main= "Boxplot of Distribution of Year Built on Sale Class")
+
+#Boxplot Overall Quality, Sale Class
+boxplot(OverallQual~SaleClass,ylim = c(0, 10), data=housing, main="Boxplot of Distribution of Overall Quality on Sale Class")
+
+#Boxplot LotArea, Sale Class
+boxplot(LotArea~SaleClass, ylim = c(0, 50000), data=housing, main="Boxplot of Distribution of LotArea on Sale Class")
+
+#Boxplot Remodeled, Sale Class
+boxplot(YearRemodAdd~SaleClass, data=housing, main="Boxplot of Distribution of Year Remodeled on Sale Class")
+
+#Boxplot Bedrooms, Sale Class
+boxplot(BedroomAbvGr~SaleClass, data=housing, main="Boxplot of Distribution of Bedrooms on Sale Class")
+```
+The density plot and boxplots gives us insight on the distribution of each predictor on the response variable "SaleClass". In each plot, we can see that there is a trend that the earlier year built, the cheaper; the lower the overall quality, the cheaper; the less lot area, the cheaper; the earlier the year remodeled, the cheaper; and the house price doesn't significantly vary between number of bedrooms. 
+
+We’re going to create a table to easily compare the quality of the different classification methods we’re going to utilize going forward, namely decision trees (with k-fold cross validation to prune the tree), k-nearest neighbor, and randomForest.
+
+```{r, include = FALSE, echo=FALSE}
+# initializing a matrix for records
+compare <- matrix(NA, nrow = 5, ncol = 3)
+colnames(compare) <- c("Accuracy Rate", "Error Rate", "AUC")
+rownames(compare) <- c("tree", "pruned.tree", 
+                       "k=38 kNN", "k=15 kNN", 
+                       "randomForest")
+```
+
+In order to apply machine learning algorithms to this dataset, we need to stratify the dataset into a training set and a test set. The training set will be used to teach the classification model how to predict. We then apply the algorithm to the test set, and see how accurate the classification was.
+
+```{r, include = FALSE, echo=FALSE}
+#Split into training and test set
+set.seed(5)
+group <- sample(1:2,nrow(housing),replace=TRUE,prob=c(.5,.5))
+table(group)
+```
+
+```{r, include = FALSE, echo=FALSE}
+housing.train <- housing[group==1,]
+housing.test <- housing[group==2,]
+head(housing.train)
+head(housing.test)
+```
+
+## Decision Tree 
+The first method we are going to perform on this dataset, is decision trees. The decision tree is a non-parametric classification method which uses a set of rules to predict that each observation belongs to the most commonly occurring class label of training data. We use SaleClass as the response, and each of the 6 numeric attributes as predictors.
+
+```{r, include = FALSE, echo=FALSE}
+# library(tree) is loaded
+# predicting the label (good vs bad)
+fit <- tree(SaleClass ~.-SalePrice, data = housing.train)
+```
+
+```{r, echo=FALSE}
+
+#$ variables actually used in tree construction"OverallQual"  "LotArea"      "YearBuilt"    "YearRemodAdd"
+summary(fit)
+
+plot(fit, type="uniform")
+text(fit, pretty = 0, cex = 0.7, col = "red")
+title("Classification Tree (Before Pruning)")
+```
+
+We can see from this summary, that 4 out of the 6 predictors were used in constructing this tree: OverallQual, LotArea, YearRemodAdd, YearBuilt. Now we are actually going to plot the tree to visualize this.
+We can build a confusion matrix after using the data to predict on the test set, and then find the accuracy rate and the error rate.
+
+```{r, include = FALSE, echo=FALSE}
+yhat.test <- predict(fit, housing.test, type="class")
+```
+
+
+```{r, echo=FALSE}
+# Obtain confusion matrix
+error <- table(yhat.test, housing.test$SaleClass)
+error
+
+# Test accuracy rate
+testacc = sum(diag(error))/sum(error)
+testacc
+# Test error rate (Classification Error)
+testerr = 1-sum(diag(error))/sum(error)
+testerr
+
+```
+
+With an accuracy rate of 0.855, and an error rate of 0.145, this decision tree model is not bad. It will classify correctly more than 4 out of 5 times on average. Alternatively We can use the Receiver Operating Characteristic (ROC) curve and the area underneath it (AUC). The ROC curve plots the false positive rate against the true positive rate, and the area underneath it falls between either 0.5 or 1, 0.5 being the worst (random classification), and 1 being the best (perfect classification).
+
+```{r, warning=FALSE, echo=FALSE}
+#ROC CURVE code here
+library(ROCR)
+# library(ROCR) is loaded
+# getting matrix of predicted class probabilities
+all_tree_probs <- as.data.frame(predict(fit, housing.test, type = "vector"))
+tree_probs <- all_tree_probs[,2]
+
+tree_roc_pred <- prediction(tree_probs, housing.test$SaleClass)
+tree_roc_perf <- performance(tree_roc_pred, "tpr", "fpr")
+
+# Plotting the ROC curve for the decision tree
+plot(tree_roc_perf, col = 2, lwd = 3, 
+     main = "ROC Curve for tree (before pruning)")
+abline(0,1)
+
+# Area under the curve
+tree_auc_perf <- performance(tree_roc_pred, "auc")
+tree_AUC <- tree_auc_perf@y.values[[1]]
+tree_AUC
+
+# adding to records matrix
+compare[1, ] <- c(testacc, testerr, tree_AUC)
+```
+We get an AUC of 0.9233.
+
+## k-fold Cross Validation for Decision Tree
+
+We can use k-fold cross-validation, which randomly partitions the dataset into folds of similar size, to see if the tree requires any pruning which can improve the model’s accuracy as well as make it more interpretable for us.In k-fold cross validation, we divide the sample into k sub samples, then train the model on k -1 samples, leaving one as a holdout sample. We compute validation error on each of these samples, then average the validation error of all of them. The idea of cross-validation is that it will sample multiple times from the training set, with different separations. Ultimately, this creates a more robust model i.e. the tree will not be overfit.
+
+```{r, include = FALSE, echo=FALSE}
+# library(tree) is loaded
+cv <- cv.tree(fit, FUN=prune.misclass, K=6)
+cv
+```
+
+```{r, echo=FALSE}
+# Best size 
+best.cv <- cv$size[which.min(cv$dev)]
+
+# plotting misclass error as a function of tree size (k)
+plot(cv$size , cv$dev, type="b", 
+     xlab = "Number of leaves, \'best\'", 
+     ylab = "Misclassification Error",
+     col = "red", main="Optimal Tree Size")
+abline(v=best.cv, lty=2)
+```
+
+```{r, include = FALSE, echo=FALSE}
+best.cv
+```
+So we see, after running cross-validation, we see that we should prune the tree so that it has only 7 nodes. With this knowledge we can prune the tree and run the same diagnostics on it that we did on the unpruned model to see if any improvements are apparent.
+
+
+```{r, echo=FALSE}
+tree.pruned <- prune.tree(fit, best = best.cv, 
+                          method = "misclass")
+ptree <- prune.misclass(fit,best=best.cv)
+plot(ptree, type = "uniform")
+text(ptree,pretty=0, cex = 0.7, col = "red")
+title("Classification Tree (After Pruning)")
+
+
+```
+```{r, echo=FALSE}
+pruned_pred <- predict(tree.pruned, housing.test, type = "class")
+# confusion matrix
+pruned_conf <- table(pred = pruned_pred, true = housing.test$SaleClass)
+pruned_conf
+# Test accuracy rate
+prunedacc = sum(diag(pruned_conf))/sum(pruned_conf)
+prunedacc
+
+# Test error rate (Classification Error)
+prunederr = 1-sum(diag(pruned_conf))/sum(pruned_conf)
+prunederr
+```
+
+We see that pruning the tree didn’t actually improve the accuracy rate of the model, although it did condense the number of relevant variables. Initially, seeing that accuracy actually decreased give the impression that pruning was not meaningful, but to the contrary, the fact that we were able to prune the tree without losing much accuracy shows that the sole variable we have remaining (overall quality) is almost just as good as classifying when using a decision tree as when using all 6 predictors.
+The original model being rather complex runs the risk of over-fitting, which is to say that the data follows the training data too closely and cannot be well generalized to new data. This is why we could be inclined to favor a simpler model such as that we found after pruning with cross-validation.
+
+```{r, echo=FALSE}
+all_pruned_probs <- as.data.frame(predict(tree.pruned, housing.test, type = "vector"))
+pruned_probs <- all_pruned_probs[,2]
+
+pruned_roc_pred <- prediction(pruned_probs, housing.test$SaleClass)
+pruned_roc_perf <- performance(pruned_roc_pred, "tpr", "fpr")
+
+# Plotting the ROC curve for the decision tree
+plot(pruned_roc_perf, col = 2, lwd = 3, 
+     main = "ROC Curve for tree (after pruning)")
+abline(0,1)
+
+# Area under the curve
+pruned_auc_perf <- performance(pruned_roc_pred, "auc")
+pruned_AUC <- pruned_auc_perf@y.values[[1]]
+pruned_AUC
+
+# adding to records matrix
+compare[2, ] <- c(prunedacc, prunederr, pruned_AUC)
+```
+
+## KNN
+K-nearest neighbors is a non parametric method of classification. It classifies each datapoint by plotting the test set in the same dimensional space as the training set, then classifies it based on the “k nearest neighbor(s)”, i.e. if k = 5, then the classification of the 5 nearest neighbors in the training data to the test data observation will be applied to that observation. One problem with using KNN for our dataset is that it assumes all predictors have the same effect on the response variable. We know this is not generally true; for example, lot size may impact sale price more than house condition. However, we can address this somewhat by removing correlated predictors and scaling numeric predictors.
+
+```{r, include = FALSE, echo=FALSE}
+# Set random seed
+#training and test set
+xtrain <- housing.train[,c('LotArea', 'OverallQual', 'YearRemodAdd', 'OverallCond', 'BedroomAbvGr', 'YearBuilt')]
+ytrain <- housing.train[,'SaleClass']
+xtest <- housing.test[,c('LotArea', 'OverallQual', 'YearRemodAdd', 'OverallCond', 'BedroomAbvGr', 'YearBuilt')]
+ytest <- housing.test[,'SaleClass']
+
+#scale
+xtrain <- scale(xtrain)
+xtest <- scale(xtest,center=attr(xtrain,'scaled:center'),scale=attr(xtrain,'scaled:scale'))
+
+```
+
+### Confusion matrix for k=38
+```{r, include = FALSE, echo=FALSE}
+#test k=38
+pred.YTtrain38 <- knn(xtrain,xtrain,ytrain,k=38)
+pred.YTest38 <- knn(xtrain,xtest,ytrain,k=38)
+
+#conf matrix k=38
+tab <- table(obs=ytrain,pred=pred.YTtrain38)
+tab
+
+#accuracy rate
+sum(diag(tab)/sum(tab))
+
+# misclassification error rate (training set) k=38
+1 - sum(diag(tab)/sum(tab))
+```
+
+```{r, echo=FALSE}
+#test set conf matrix k=38
+tab1 <- table(obs=ytest,pred=pred.YTest38)
+tab1
+
+#accuracy rate k=38
+knnacc = sum(diag(tab1)/sum(tab1))
+knnacc
+
+# misclassification error rate (validation set) k=38
+knnerr = 1 - sum(diag(tab1)/sum(tab1))
+knnerr
+```
+
+### Confusion matrix for k=39
+```{r, include=FALSE, echo=FALSE}
+#test k=39
+pred.YTtrain39 <- knn(xtrain,xtrain,ytrain,k=39)
+pred.YTest39 <- knn(xtrain,xtest,ytrain,k=39)
+
+#conf matrix k=39
+tab <- table(obs=ytrain,pred=pred.YTtrain39)
+tab
+
+#accuracy rate
+sum(diag(tab)/sum(tab))
+
+# misclassification error rate (training set) k=39
+1 - sum(diag(tab)/sum(tab))
+```
+
+```{r, echo=FALSE}
+#test set conf matrix k=39
+tab2 <- table(obs=ytest,pred=pred.YTest39)
+tab2
+
+#accuracy rate
+sum(diag(tab2)/sum(tab2))
+
+# misclassification error rate (validation set) k=39
+1 - sum(diag(tab2)/sum(tab2))
+
+compare[3, ] <- c(knnacc, knnerr, "NA")
+```
+To find the optimal K value, we took the square root of the number of observations in the training data set. Since the number of observations is 1460, the square root is 38.2 so we fit 2 models with k=38 and k=39. We then created a confusion matrix for both models using the training and test data set and found that k=38 yields a lower misclassification rate in the training set. Therefore, we append our results for K=38 into our table.
+
+```{r, include = FALSE, echo=FALSE}
+#k-fold CV
+do.chunk <- function(chunkid, folddef, Xdat, Ydat, ...){ # Function arguments
+train = (folddef!=chunkid) # Get training index
+Xtr = Xdat[train,] # Get training set by the above index
+Ytr = Ydat[train] # Get true labels in training set
+Xvl = Xdat[!train,] # Get validation set
+Yvl = Ydat[!train] # Get true labels in validation set
+predYtr = knn(train=Xtr, test=Xtr, cl=Ytr, ...) # Predict training labels
+predYvl = knn(train=Xtr, test=Xvl, cl=Ytr, ...) # Predict validation labels
+data.frame(fold = chunkid, # k folds
+train.error = mean(predYtr != Ytr), # Training error for each fold
+val.error = mean(predYvl != Yvl)) # Validation error for each fold
+}
+```
+
+```{r, include = FALSE, echo=FALSE}
+nfolds <- 5
+folds = sample(cut(1:nrow(xtrain), breaks=nfolds, labels=FALSE))
+table(folds)
+
+head(folds,5)
+```
+We use k-fold cross-validation to select the best number of neighbors. Since our data isn't significantly large, we use 5 folds for cross validation so that 20% of our data can be used for testing. 
+
+```{r, include = FALSE, echo=FALSE}
+error.folds = NULL
+kvec <- 1:50
+for( j in kvec ) {
+ tmp = ldply(1:nfolds, do.chunk,folddef=folds, Xdat=xtrain, Ydat=ytrain, k=j)
+  tmp$neighbors = j 
+  error.folds = rbind(error.folds,tmp) 
+}
+dim(error.folds)
+```
+
+```{r, include = FALSE, echo=FALSE}
+head(error.folds)
+```
+
+For each fold and each neighbor, we want the type of error (training/test) and the corresponding value.
+
+```{r, include = FALSE, echo=FALSE}
+# Transform the format of error.folds for further convenience
+errors = melt(error.folds, id.vars=c('fold', 'neighbors'), value.name='error')
+# Choose the number of neighbors which minimizes validation error
+val.error.means = errors %>%
+# Select all rows of validation errors
+filter(variable=='val.error') %>%
+# Group the selected data frame by neighbors
+group_by(neighbors, variable) %>%
+# Calculate CV error rate for each k
+summarise_each(funs(mean), error) %>%
+# Remove existing group
+ungroup() %>%
+filter(error==min(error))
+```
+
+```{r}
+# Best number of neighbors
+# if there is a tie, pick larger number of neighbors for simpler model
+numneighbor = max(val.error.means$neighbors)
+numneighbor
+```
+
+The best number of neighbors is found to be 9. 
+
+```{r, echo=FALSE}
+pred.YTest = knn(train=xtrain, test=xtest, cl=ytrain, k=numneighbor)
+# Confusion matrix
+conf.matrix = table(predicted=pred.YTest, true=ytest)
+conf.matrix
+
+# Test accuracy rate
+bknnacc = sum(diag(conf.matrix)/sum(conf.matrix))
+bknnacc
+# Test error rate
+bknnerr = 1 - sum(diag(conf.matrix)/sum(conf.matrix))
+bknnerr
+
+compare[4, ] <- c(bknnacc, bknnerr, "NA")
+```
+
+We then train a 9-NN classifier and calculate the test error rate to be 0.1273973, which is relatively low.
+ 
+## Random Forest
+RandomForest is similar to the decision tree method in that it builds trees, hence the name ‘random Forest’. This is a learning method which creates a lot of decision trees, and outputting the class that occurs most often. The advantage that randomForest has over decision trees is the element of randomness which guards against the pitfall of overfitting that decision trees run into on their own.
+
+```{r, include=FALSE, echo=FALSE}
+### Random Forest
+# using all 6 predictor attributes, on the training set
+rf <- randomForest(formula = SaleClass ~ .-SalePrice,
+                   data = housing.train,
+                   mtry = 6)
+
+print(rf)
+```
+```{r, echo=FALSE}
+varImpPlot(rf, main = "Variable Importance Plot")
+```
+
+Impurity is a way that the optimal condition of a tree is determined and this plot shows how each variable individually affects the weighted impurity of the tree itself. It's consistent with our findings from the pruned decision tree method. OverallQual is by far the most important predictor, followed by LotArea and YearBuilt.
+
+```{r, echo=FALSE}
+# predicting on the test set
+rf_pred <- predict(rf, housing.test, type = "class")
+
+# Confusion Matrix
+rf_conf <- table(true = housing.test$SaleClass, pred =  rf_pred)
+rf_conf
+```
+
+
+```{r, echo=FALSE}
+#accuracy rate
+rf_acc = sum(diag(rf_conf))/sum(rf_conf)
+rf_acc
+
+#error rate
+rf_err <- 1 - rf_acc
+rf_err
+```
+With an accuracy of 0.8753, this randomForest model is our best classification method so far.
+
+```{r, echo=FALSE}
+# Building the ROC Curve
+rf_pred <- as.data.frame(predict(rf, newdata = housing.test, type = 'prob'))
+rf_pred_probs <- rf_pred[,2]
+rf_roc_pred <- prediction(rf_pred_probs, housing.test$SaleClass)
+rf_perf <- performance(rf_roc_pred, measure = "tpr", 
+                       x.measure = "fpr")
+
+# Plotting the curve
+plot(rf_perf, col = 2, lwd = 3, 
+     main = "ROC Curve for randomForest with all 6 variables")
+abline(0,1)
+
+# Area under the curve
+rf_perf2 <- performance(rf_roc_pred, measure = "auc")
+rf_AUC <- rf_perf2@y.values[[1]]
+rf_AUC
+
+compare[5, ] <- c(rf_acc, rf_err, rf_AUC)
+```
+After graphing the ROC curve, we find the area under the curve is 0.9363, which is the strongest AUC compared the previous classification methods.Therefore, we can conclude that randomForest is the most likely method to correctly classify sales based off the attributes.
+
+# Conclusion
+```{r}
+compare
+```
+Looking at our findings, we see that randomForest is the method that gets us both the highest accuracy rate and the highest AUC value (when compared to the decision tree method since we didn't calculate AUC for K-Nearest Neighbors). RandomForest is also not as prone to overfitting as decision trees since it is just an aggregate of many decision trees, and it is a more robust method than KNN for large datasets where predictors may be correlated. Therefore, we can conclude that RandomForest is the best classification algorithm. 
+
+There isn't a huge difference in accuracy rates between any of the methods, so each method may have it's own uses. For example, we have already stated that decision trees are prone to overfitting, but it is also the most easily interpreted method. We were able to prune the tree through K-fold cross validation which allowed us to narrow the model down to the most important variables. We could have also used the variables from the pruned tree to build a simpler randomForest model using only the "important" variables, since a simpler model gives reduces bias and complexity. It would be interesting see if making the randomForest model less complex would be worthwhile by comparing metrics. If we could apply this subset of variables to the randomForest algorithm and come out with a strong model that only utilizes a few independent variables in order to classify at a high success rate, it would lend strength to the argument that OverallQual, LotArea, YearBuilt are the most relevant predictors when it comes to determining whether a house is expensive or not.
+
+As far as further questions we still have, we would want to know how best to balance having a high level of accuracy while also balancing variance and bias so we don't over/underfit. For example, is it necessary to drop variables from randomForest when the method already inherently accounts for overfitting? However if we just compare for models with the same number of variables, we conclude randomForest is the best for binary classification and our most important predictors are OverallQual, YearBuilt, and LotArea.
+
+# References
+* https://www.kaggle.com/lespin/house-prices-dataset#test.csv
