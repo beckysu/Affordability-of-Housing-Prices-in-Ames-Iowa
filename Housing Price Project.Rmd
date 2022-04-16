@@ -2,7 +2,7 @@
 title: "PSTAT 131 Final Project"
 author: "Matthew Li & Becky Su"
 date: "6/4/2020"
-output: pdf_document
+output: github_document
 ---
 # Introduction
 The House Prices Dataset from Kaggle compiled by Dean De cock serves as an updated alternative to the Boston Housing Prices dataset that is a record of 1460 housing sales and it's attributes in Ames, Iowa from 2006 to 2009. This dataset has 80 variables that focus on the quality and quantity of many physical attributes of the property. This data serves as relevant information for future home buyers as well as those looking to analyze trends of housing prices in Ames, Iowa. 
