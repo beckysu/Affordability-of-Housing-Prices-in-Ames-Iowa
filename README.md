@@ -3,8 +3,8 @@
 The purpose of this analysis is to determine the critical factors that influence affordability (above average, average, below average) of all housing sales in Ames, Iowa that occurred from 2006 to 2009 relative to the rest of the area. We used sale attributes such as lot size, house condition, etc. to see if we can use machine learning to determine why a house is expensive or cheap.
 
 ## Contributor
-• Becky Su
-• Matthew Li
+* Becky Su
+* Matthew Li
 
 ## Reproduction
 House Prices dataset using the training set (train.csv), data available on Kaggle compiled by Dean De Cock, accessed in RStudio.
